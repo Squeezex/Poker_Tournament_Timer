@@ -1,38 +1,37 @@
 import tkinter as tk
 import time
 import threading
-from tkinter import simpledialog
 
 class PokerTournament:
     def __init__(self, root):
         self.root = root
         self.root.title("Poker Tournament Timer")
         
-        # Устанавливаем размер окна (ширина x высота)
-        self.root.geometry("500x600")
+        # Размер окна
+        self.root.geometry("800x600")
         
         # Шрифт для всех элементов
-        self.font = ("Arial", 14)
+        self.font = ("Arial", 24)
         
-        # Начальные настройки времени
-        self.blind_time_default = 20 * 60  # 20 минут
-        self.break_time_default = 15 * 60  # 15 минут
+        # Начальные настройки времени в секундах
+        self.blind_time_default = 20 # Время блайндов указывается в секундах
+        self.break_time_default = 15  # Время перерыва указывается в секундах
         self.time_interval = self.blind_time_default  # Время на блайнды
         self.break_time_remaining = self.break_time_default  # Время на перерыв
         self.current_blind_index = 0
-        self.players = 20
-        self.total_chips = 2000 * self.players
+        self.players = 20 # Кол-во игроков
+        self.total_chips = 2000 * self.players # Стек
         self.blind_time_remaining = self.time_interval
-        self.in_break = False
+        self.in_break = False  # Флаг, который показывает, что сейчас перерыв
         self.tournament_started = False
         self.timer_thread = None
+        self.break_thread = None
         self.thread_running = False
         
+        # Блайнды, (бб,сб,анте) 14 уровней
         self.blinds = [
             (5, 10, 0), (15, 30, 0), (25, 50, 0), (50, 100, 0),
-            ('Break',),
             (75, 150, 0), (100, 200, 25), (150, 300, 50), (200, 400, 75),
-            ('Break',),
             (300, 600, 100), (400, 800, 100), (500, 1000, 150), (600, 1200, 200),
             (800, 1600, 200), (1000, 2000, 200)
         ]
@@ -40,45 +39,57 @@ class PokerTournament:
         self.create_widgets()
     
     def create_widgets(self):
-        self.level_label = tk.Label(self.root, text=f"Level: {self.current_blind_index + 1}", font=self.font)
+        # Создаем основной Frame для левого и правого блоков
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Левый блок для уровня и блайндов и таймера
+        left_frame = tk.Frame(main_frame)
+        left_frame.pack(side="left", padx=20, pady=10, anchor="w")
+        
+        self.level_label = tk.Label(left_frame, text=f"Level: {self.current_blind_index + 1}", font=self.font)
         self.level_label.pack()
         
-        self.blinds_label = tk.Label(self.root, text=self.get_blind_text(), font=self.font)
+        self.blinds_label = tk.Label(left_frame, text=self.get_blind_text(), font=self.font)
         self.blinds_label.pack()
         
-        self.timer_label = tk.Label(self.root, text=f"Time: {self.format_time(self.blind_time_remaining)}", font=self.font)
+        self.timer_label = tk.Label(left_frame, text=f"Time: {self.format_time(self.blind_time_remaining)}", font=self.font)
         self.timer_label.pack()
         
-        self.players_label = tk.Label(self.root, text=f"Players: {self.players} out of 20", font=self.font)
+        # Правый блок для оставшихся игроков и среднего стэка
+        right_frame = tk.Frame(main_frame)
+        right_frame.pack(side="right", padx=20, pady=10, anchor="e")
+        
+        self.players_label = tk.Label(right_frame, text=f"Players: {self.players} out of 20", font=self.font)
         self.players_label.pack()
         
-        self.avg_stack_label = tk.Label(self.root, text=f"Average Stack: {self.average_stack()}", font=self.font)
+        self.avg_stack_label = tk.Label(right_frame, text=f"Average Stack: {self.average_stack()}", font=self.font)
         self.avg_stack_label.pack()
         
-        # Кнопки, размещаем внизу
-        self.start_button = tk.Button(self.root, text="Start Tournament", command=self.start_tournament, font=self.font)
-        self.start_button.pack(side="bottom", pady=5)
-        
-        self.reset_button = tk.Button(self.root, text="Reset Tournament", command=self.reset_tournament, font=self.font)
-        self.reset_button.pack(side="bottom", pady=5)
-        
-        self.eliminate_button = tk.Button(self.root, text="Eliminate Player", command=self.eliminate_player, font=self.font)
-        self.eliminate_button.pack(side="bottom", pady=5)
-        
-        self.break_button = tk.Button(self.root, text="Start Break", command=self.start_break_thread, font=self.font)
-        self.break_button.pack(side="bottom", pady=5)
-        
-        self.settings_button = tk.Button(self.root, text="Settings", command=self.open_settings, font=self.font)
-        self.settings_button.pack(side="bottom", pady=5)
+        # Кнопки в одной строке старт, выкинуть игрока, перерыв
+        buttons_frame = tk.Frame(self.root)
+        buttons_frame.pack(side="bottom", fill="x", pady=10)
+
+        self.start_button = tk.Button(buttons_frame, text="Start Tournament", command=self.start_tournament, font=self.font)
+        self.start_button.pack(side="left", padx=10)
+
+        self.eliminate_button = tk.Button(buttons_frame, text="Eliminate Player", command=self.eliminate_player, font=self.font)
+        self.eliminate_button.pack(side="left", padx=10)
+
+        self.break_button = tk.Button(buttons_frame, text="Start Break", command=self.start_break, font=self.font)
+        self.break_button.pack(side="left", padx=10)
     
     def get_blind_text(self):
         current_blind = self.blinds[self.current_blind_index]
-        if current_blind == ('Break',):
-            return "Break Time"
-        
-        next_blind = self.blinds[self.current_blind_index + 1] if self.current_blind_index + 1 < len(self.blinds) else None
-        
-        next_blind_text = f"{next_blind[0]}/{next_blind[1]}" if next_blind else "None"
+    
+    # Текущие блайнды
+        if self.current_blind_index >= len(self.blinds) - 1:
+        # Если последний уровень, показываем "This is Last Level"
+            next_blind_text = "This is Last Level"
+        else:
+            next_blind = self.blinds[self.current_blind_index + 1]
+            next_blind_text = f"{next_blind[0]}/{next_blind[1]}" if len(next_blind) > 1 else "None"
+    
         return f"Blinds: {current_blind[0]}/{current_blind[1]}, Ante: {current_blind[2]}\nNext: {next_blind_text}"
     
     def format_time(self, seconds):
@@ -87,40 +98,35 @@ class PokerTournament:
     def start_tournament(self):
         if not self.tournament_started:
             self.tournament_started = True
-            # Запускаем таймер на блайнды с текущими настройками
+            # Запускаем таймер на блайнды
             self.thread_running = True
             self.timer_thread = threading.Thread(target=self.blind_timer, daemon=True)
             self.timer_thread.start()
     
-    def reset_tournament(self):
-        # Останавливаем турнир, если он был запущен
-        self.tournament_started = False
-        self.thread_running = False
-        self.current_blind_index = 0
-        self.blind_time_remaining = self.time_interval
-        self.break_time_remaining = self.break_time_default
-        self.players = 20
-        self.total_chips = 2000 * self.players
-        self.in_break = False
-        
-        # Останавливаем текущий поток, если турнир запущен
-        if self.timer_thread and self.thread_running:
-            self.thread_running = False  # Останавливаем поток
-            self.timer_thread.join()  # Ждем завершения потока
-        
-        # Обновляем интерфейс
-        self.update_display()
+    def start_break(self):
+        if not self.in_break:  # Если не перерыв, запускаем
+            # Останавливаем таймер блайндов
+            self.thread_running = False
+            self.in_break = True
+            self.break_time_remaining = self.break_time_default * 1  # переводим минуты в секунды если нужно, сейчас не переводится
+            # Запускаем таймер для перерыва в отдельном потоке
+            self.break_thread = threading.Thread(target=self.break_timer, daemon=True)
+            self.break_thread.start()
     
-    def open_settings(self):
-        # Открываем окно с настройками для ввода времени на блайнды и перерыв
-        blind_time = simpledialog.askinteger("Settings", "Enter blind time in minutes:", parent=self.root, minvalue=1, maxvalue=60, initialvalue=self.time_interval // 60)
-        break_time = simpledialog.askinteger("Settings", "Enter break time in minutes:", parent=self.root, minvalue=1, maxvalue=60, initialvalue=self.break_time_remaining // 60)
-        
-        if blind_time is not None and break_time is not None:
-            self.time_interval = blind_time * 60
-            self.break_time_remaining = break_time * 60
-            # Обновляем интерфейс с новыми значениями
+    def break_timer(self):
+        while self.break_time_remaining > 0 and self.in_break:
+            time.sleep(1)
+            self.break_time_remaining -= 1
             self.update_display()
+        
+        # Перерыв завершен, восстанавливаем таймер блайндов
+        self.in_break = False
+        self.blind_time_remaining = self.time_interval  # Возвращаем стандартное время на блайнды
+        self.thread_running = True  # Разрешаем таймеру блайндов продолжиться
+        self.update_display()
+        # Запускаем таймер блайндов, если еще не завершился турнир
+        self.timer_thread = threading.Thread(target=self.blind_timer, daemon=True)
+        self.timer_thread.start()
     
     def blind_timer(self):
         while self.current_blind_index < len(self.blinds) - 1 and self.thread_running:
@@ -128,28 +134,17 @@ class PokerTournament:
                 time.sleep(1)
                 self.blind_time_remaining -= 1
                 self.update_display()
+            
+            # Если достигли последнего уровня, останавливаем таймер
+            if self.current_blind_index >= len(self.blinds) - 1:
+                self.blind_time_remaining = 0  # Останавливаем таймер на последнем уровне
+                self.update_display()
+                break
+            
             if not self.in_break:
                 self.current_blind_index += 1
-                if self.blinds[self.current_blind_index] == ('Break',):
-                    self.start_break()
-                else:
-                    self.blind_time_remaining = self.time_interval
+                self.blind_time_remaining = self.time_interval  # Сбрасываем время на блайнды для следующего уровня
                 self.update_display()
-    
-    def start_break_thread(self):
-        threading.Thread(target=self.start_break, daemon=True).start()
-    
-    def start_break(self):
-        self.in_break = True
-        self.timer_label.config(fg="red")  # Изменяем цвет таймера на красный
-        while self.break_time_remaining > 0 and self.thread_running:
-            time.sleep(1)
-            self.break_time_remaining -= 1
-            self.update_display()
-        self.in_break = False
-        self.blind_time_remaining = self.time_interval
-        self.timer_label.config(fg="black")  # Возвращаем цвет таймера в черный
-        self.update_display()
     
     def eliminate_player(self):
         if self.players > 0:
@@ -162,11 +157,18 @@ class PokerTournament:
     def update_display(self):
         self.level_label.config(text=f"Level: {self.current_blind_index + 1}")
         self.blinds_label.config(text=self.get_blind_text())
-        if self.in_break:
-            self.timer_label.config(text=f"Break: {self.format_time(self.break_time_remaining)}")
+    
+    # Если это последний уровень, скрываем таймер
+        if self.current_blind_index >= len(self.blinds) - 1:
+           self.timer_label.config(text="", fg="black")  # Скрываем таймер, текс просто заменяется пустым
         else:
-            self.timer_label.config(text=f"Time: {self.format_time(self.blind_time_remaining)}")
-        self.players_label.config(text=f"Players: {self.players} out of 20")
+        # Меняем цвет таймера на красный, если идет перерыв
+            if self.in_break:
+               self.timer_label.config(text=f"Break: {self.format_time(self.break_time_remaining)}", fg="red")
+            else:
+               self.timer_label.config(text=f"Time: {self.format_time(self.blind_time_remaining)}", fg="black")
+    
+        self.players_label.config(text=f"Players: {self.players} out of 20") # нужно поменять кол-во игроков здесь если надо
         self.avg_stack_label.config(text=f"Average Stack: {self.average_stack()}")
         self.root.update()
 
@@ -174,3 +176,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = PokerTournament(root)
     root.mainloop()
+
+# Чтобы сбилдить клиент .exe нужно запустить в папке cmd "pyinstaller --onefile --windowed poker_timer.py"
